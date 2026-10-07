@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 import textstat
 
-from services.simplification import simplify_at_level
+from services.simplification import preservation_aware_simplify
 from services.preservation import compare_clauses_weighted_with_equivalence
 from services.summarization import summarize_with_metadata
 from services.glossary import find_legal_terms
@@ -45,13 +45,30 @@ def readability(text):
     }
 
 def analyze(text, level):
+
     original = clean(text)
-    simplified, rules = simplify_at_level(original, level)
-    preservation = compare_clauses_weighted_with_equivalence(original, simplified)
+
+    aware_result = preservation_aware_simplify(
+        original,
+        level,
+        max_attempts=3
+    )
+
+    simplified = aware_result['simplified']
+
+    preservation = (
+        compare_clauses_weighted_with_equivalence(
+            original,
+            simplified
+        )
+    )
+
     return {
         'original': original,
         'simplified': simplified,
-        'rules': rules,
+        'rules': aware_result['accepted_rules'],
+        'rejected': aware_result['rejected_rules'],
+        'attempts': aware_result['attempts'],
         'preservation': preservation,
         'summary': summarize_with_metadata(simplified),
         'glossary': find_legal_terms(original),
@@ -155,6 +172,23 @@ if 'clauseguard_result' in st.session_state:
             st.write('• ' + rule)
     else:
         st.write('No approved transformation was applicable.')
+
+    if result.get('rejected'):
+
+        st.subheader('⚠️ Rejected Transformations')
+
+        for item in result['rejected']:
+
+            st.warning(
+                f"{item['rule']} | "
+                f"Risk: {item['risk']} | "
+                f"Status: {item['status']}"
+            )
+
+    st.caption(
+        f"Preservation-aware attempts: "
+        f"{result.get('attempts', 0)} / 3"
+    )
 
     st.subheader('🔎 Preservation Check Details')
     details = []
